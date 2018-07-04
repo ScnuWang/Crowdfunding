@@ -29,6 +29,7 @@ class TaoBaoprojectItem(models.Model):
     # 这里数据库默认使用关联对象的主键,如果是其他字段，需要设置to_field ,并且关联对象的对应字段设置unique=True
     project = models.ForeignKey(TaoBaoProject,on_delete=models.CASCADE,to_field='original_id')
     image = models.CharField(max_length=255)
+    # max_digits：数据总长，decimal_places，小数点位数
     price = models.DecimalField(max_digits=18,decimal_places=2)
     support_person = models.IntegerField()
     total = models.IntegerField()
