@@ -1,33 +1,28 @@
+import urllib
 from datetime import datetime
 from django.utils import timezone
 import requests
-from .models import TaoBaoProject,TaoBaoProjectItem,CrawlTask
+from .models import XiaoMiProject,XiaoMiProjectItem,CrawlTask
 
 # 获取要抓取的项目列表，并
 def crawl_tb_init():
-    projectList_Url = 'https://izhongchou.taobao.com/dream/ajax/getProjectList.htm'
-    payload = {'page':1,'pageSize':100,'projectType':'121288001','type':6,'status':'','sort':1}
-    # 异常：获取不到数据
+    projectList_Url = 'https://home.mi.com/app/shopv3/pipe'
+    headers = {'Connection': 'keep-alive', 'Accept-Encoding': 'gzip, deflate, br', 'Accept-Language': 'zh-CN,zh;q=0.8',
+               'content-type': 'application/x-www-form-urlencoded',
+               'Referer': '//home.mi.com/crowdfundinglist?id=78&title=%E4%BC%97%E7%AD%B9',
+               'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
+    param = 'data=%7B%22request%22%3A%7B%22model%22%3A%22Homepage%22%2C%22action%22%3A%22BuildHome%22%2C%22parameters%22%3A%7B%22id%22%3A%2278%22%7D%7D%7D'
 
-    get_pageTotal = requests.get(url=projectList_Url,params=payload).json()
-    # 获取总页数
-    print(get_pageTotal['pageTotal'])
-    for page in range(1,int(get_pageTotal['pageTotal'])+1):
-        payload['page'] = page
-        # 休息10秒
-        # time.sleep(10)
-        # 获取每一页的产品列表
-        response = requests.get(url=projectList_Url, params=payload).json()
-        data = response['data']
-        # 获取单个产品的编号id
-        for project in data:
-            original_id = project['id']
-            project_crawl_url = 'https://izhongchou.taobao.com/dream/ajax/getProjectForDetail.htm?id='+original_id
-            crawltask = CrawlTask()
-            crawltask.project_original_id = original_id
-            crawltask.project_crawl_url = project_crawl_url
-            crawltask.website_id = 1
-            crawltask.save()
+    projects = requests.post(projectList_Url,params=param,headers=headers).json()['result']['request']['data']
+
+    for project in projects:
+        original_id = project['gid']
+        project_crawl_url = 'https://youpin.mi.com/app/shop/pipe'
+        crawltask = CrawlTask()
+        crawltask.project_original_id = original_id
+        crawltask.project_crawl_url = project_crawl_url
+        crawltask.website_id = 1
+        crawltask.save()
 
     crawltask = CrawlTask()
     crawltask.crawl_status = 5
@@ -42,18 +37,29 @@ def crawl_tb():
     for task in tasklist:
         try:
             # 获取每个详细信息的数据
-            response = requests.get(task.project_crawl_url).json()['data']
+            headers = {'Connection': 'keep-alive', 'Accept-Encoding': 'gzip, deflate, br',
+                       'Accept-Language': 'zh-CN,zh;q=0.8',
+                       'content-type': 'application/x-www-form-urlencoded',
+                       'Referer': '//home.mi.com/crowdfundinglist?id=78&title=%E4%BC%97%E7%AD%B9',
+                       'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36'}
+            gid = task.project_original_id
+            detailparm = "{\"detail\":{\"model\":\"Shopv2\",\"action\":\"getDetail\",\"parameters\":{\"gid\":\"%s\"}},\"comment\":{\"model\":\"Comment\",\"action\":\"getList\",\"parameters\":{\"goods_id\":\"%s\",\"orderby\":\"1\",\"pageindex\":\"0\",\"pagesize\":3}},\"activity\":{\"model\":\"Activity\",\"action\":\"getAct\",\"parameters\":{\"gid\":\"%s\"}}}" % (
+            gid, gid, gid)
+            detailreq = urllib.parse.quote(detailparm)
+            detailreq = "data=" + detailreq
+            response = requests.post(task.project_crawl_url, data=detailreq, headers=headers).json()['result']['detail']['data']
 
             # 保存数据
-            project = TaoBaoProject()
+            project = XiaoMiProject()
             project.original_id = task.project_original_id
-            project.project_name = response['name']
-            project.curr_money = response['curr_money']
-            project.target_money = response['target_money']
+            good_response = response['good']
+            project.project_name = good_response['name']
+            project.curr_money = good_response['saled_fee']
+            project.target_money = good_response['target_money']
 
             status_value = int(response['status_value'])
 
-            if status_value in [6,8,9]:
+            if status_value in [6,8,9,]:
                 project.status = '众筹成功'
                 project.status_value = 1
             elif status_value in [4,]:
@@ -91,7 +97,7 @@ def crawl_tb():
 
             # 支持档
             for item in response['items']:
-                project_item = TaoBaoProjectItem()
+                project_item = XiaoMiProjectItem()
                 project_item.title = item['title']
                 project_item.item_id = item['item_id']
                 project_item.project_id = project.original_id
