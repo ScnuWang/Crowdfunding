@@ -1,7 +1,10 @@
+import re,json
 from datetime import datetime
 from django.utils import timezone
 import requests
 from .models import TaoBaoProject,TaoBaoProjectItem,CrawlTask
+import logging
+logger = logging.getLogger('django')
 
 # 获取要抓取的项目列表，并
 def crawl_tb_init():
@@ -42,7 +45,16 @@ def crawl_tb():
     for task in tasklist:
         try:
             # 获取每个详细信息的数据
-            response = requests.get(task.project_crawl_url).json()['data']
+            # 有时候会出现第一次请求无法获取数据，需要再请求才能拿到数据
+            # response = requests.get(task.project_crawl_url).json()['data']
+            # 解决以下问题
+            # Invalid \escape: line 223 column 51 (char 14792)
+            # 获取不到data
+            response = requests.get(task.project_crawl_url).text
+            regex = re.compile(r'\\(?![/u"])')
+            fixed = regex.sub(r"\\\\", response)
+            response = json.loads(fixed)['data']
+
 
             # 保存数据
             project = TaoBaoProject()
@@ -106,7 +118,8 @@ def crawl_tb():
             task.crawl_status = 2
             task.save()
         except Exception as error:
-            print(error)
+            logger.error(error)
+            print('===> 原始编号', task.project_original_id, '------------》 平台编号', task.website_id, '-------------', error)
             # 如果是第一次抓取异常，再抓取一次，抓取次数多余2次，设置为抓取失败
             if task.crawl_count == 1:
                 task.crawl_status = 4
@@ -114,7 +127,8 @@ def crawl_tb():
             else:
                 task.crawl_status = 3
                 task.crawl_count += 1
-        continue
+
+            task.save()
     crawltask = CrawlTask()
     crawltask.crawl_status = 6
     crawltask.website_id = 1
